@@ -1,10 +1,11 @@
 #include <SoftwareSerial.h>
-#include "LowPower.h"
-#include "millisDelay.h"
-#include "version.h"
-#include "Xbee_lib.h"
+#include <LowPower.h>
+#include <millisDelay.h>
+#include <version.h>
+#include <Xbee_lib.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <Print_lib.h>
 
 #define LED_PIN     13
 #define WAKE_PIN     3
@@ -14,7 +15,9 @@
 #define OUT_PIN      6
 
 SoftwareSerial ss(7,8);  // (rx,tx)
-Xbee_lib m_xbee(&ss);
+Print_lib m_sw(&ss);
+
+Xbee_lib m_xbee(&m_sw);
 
 struct Msg_data m_rx_msg;
 
@@ -33,15 +36,17 @@ uint8_t m_tx_count = 0;
 
 void setup()
 {
+  Serial.print(HEX);
   // allow time to switch to xbee mode on pcb
   delay(2000);
 
   Serial.begin(19200);
   Serial.println("**** SERIAL ****");
 
-  ss.begin(19200);   //m_xbee.Begin(19200);
-  ss.print("xbee_api_sleep_txrx_usb_remote : ");
-  ss.println(version);
+  m_xbee.Begin(19200);
+
+  m_sw.Begin(19200);   //m_xbee.Begin(19200);
+  m_sw.Println("xbee_api_sleep_txrx_usb_remote : "); //, version);
 
   // pin definitions
   pinMode(WAKE_PIN, INPUT);
@@ -90,7 +95,7 @@ void loop()
   // no successful response, sleep anyway
   if(m_sleep_timer.justFinished())
   {
-    ss.println("wireless timeout, going to sleep");
+    m_sw.Println("wireless timeout, going to sleep");
     m_sleep_now = true;
   }
 }
@@ -154,10 +159,14 @@ void handle_wireless()
   // transmit data, timer has timed out
   if(m_tx_now &&  m_send_timer.justFinished())
   {
-    // use enum from transmit status
-    uint8_t tx_ok = m_xbee.Transmit_data(tx_msg);
-    if(tx_ok == 1)
+    m_sw.Print_msg("TX msg: ", tx_msg, false);
+
+    uint8_t tx_array[sizeof(tx_msg.payload) + 20];
+    bool tx_ok = m_xbee.Build_frame(tx_msg, tx_array);
+
+    if(tx_ok)
     {
+      Transmit_frame(tx_array, sizeof(tx_array));
       m_tx_count++;
     }
 
@@ -169,26 +178,38 @@ void handle_wireless()
 
 //////////////////////////////////////////////////////////////////////
 
+void Transmit_frame(const uint8_t* frame, const uint8_t length)
+{
+  // doesn't work properly, tx's huge frame
+  //m_sw.Print_array("TX frame: ", frame, length);
+  m_sw.Print_array(frame, length);
+  delay(10);
+  Serial.write(frame, length);
+  delay(10);
+}
+
+//////////////////////////////////////////////////////////////////////
+
 void Message_received(const struct Msg_data rx_data)
 {
-  ss.println("Message_received");
-  m_xbee.Print_msg(rx_data);
+  m_sw.Println("Message_received");
+  m_sw.Print_msg(rx_data, false);
 
   switch(rx_data.payload_id)
   {
     case CMD_ID::ACK :
-      ss.println("Rx'd Ack");
+      m_sw.Println("Rx'd Ack");
       m_sleep_now = true;
       break;
 
     case CMD_ID::IO_OUT :
-      ss.println("Rx'd IO out");
+      m_sw.Println("Rx'd IO out");
       m_sleep_now = run_outputs(rx_data.payload);   // s3o3611
       break;
 
     default :
-      ss.print("Unknown CMD::ID: ");
-      ss.println(rx_data.payload_id);
+      m_sw.Print("Unknown CMD::ID: ");
+      m_sw.Println(rx_data.payload_id);
       m_sleep_now = true;
   }
 
