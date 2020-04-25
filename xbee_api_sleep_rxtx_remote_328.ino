@@ -16,14 +16,12 @@
 
 SoftwareSerial ss(7,8);  // (rx,tx)
 Print_lib m_sw(&ss);
-
 Xbee_lib m_xbee(&m_sw);
 
 struct Msg_data m_rx_msg;
 
 millisDelay m_send_timer;
 millisDelay m_sleep_timer;
-millisDelay m_wireless_timer;
 
 OneWire oneWire(DS180_TEMP);
 DallasTemperature sensor(&oneWire);
@@ -36,22 +34,19 @@ uint8_t m_tx_count = 0;
 
 void setup()
 {
-  Serial.print(HEX);
   // allow time to switch to xbee mode on pcb
   delay(2000);
 
   Serial.begin(19200);
   Serial.println("**** SERIAL ****");
-
-  m_xbee.Begin(19200);
-
-  m_sw.Begin(19200);   //m_xbee.Begin(19200);
-  m_sw.Println("xbee_api_sleep_txrx_usb_remote : "); //, version);
+  m_sw.Begin(19200);
+  m_sw.Println("xbee_api_sleep_txrx_usb_remote : ", version);
 
   // pin definitions
   pinMode(WAKE_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
-  pinMode(OUT_PIN, OUTPUT); digitalWrite(OUT_PIN, LOW);
+  pinMode(OUT_PIN, OUTPUT);
+  digitalWrite(OUT_PIN, LOW);
 
   // delay before transmission is sent again (no response)
   m_send_timer.start(2000);
@@ -59,10 +54,7 @@ void setup()
   // sleep after 10 seconds regardless if transmission/response status
   m_sleep_timer.start(10000);
 
-  // slow the tx-ing and rx-ing handling loop
-  m_wireless_timer.start(1);
-
-  // Start up the library for dallas temp
+  // start up the library for dallas temp
   sensor.begin();
 
   // callback for when valid data received
@@ -85,12 +77,7 @@ void loop()
 {
   handle_sleep(m_sleep_now);
 
-  // slow the wireless loop
-  if(m_wireless_timer.justFinished())
-  {
-    m_wireless_timer.repeat();
-    handle_wireless();
-  }
+  handle_wireless();
 
   // no successful response, sleep anyway
   if(m_sleep_timer.justFinished())
@@ -137,11 +124,10 @@ void handle_wireless()
 
   // build message, insert payloads
   struct Msg_data tx_msg;
-  tx_msg.length = 23;
   tx_msg.frame_type = 0x10;
   tx_msg.address = ID::XBEE_1;
   tx_msg.payload_cnt = m_tx_count;
-  tx_msg.payload_id = CMD_ID::IO_IN;
+  tx_msg.payload_id = STAT_ID::IO_IN;
 
   // light sensor
   analogRead(A2); // throw away
@@ -159,7 +145,7 @@ void handle_wireless()
   // transmit data, timer has timed out
   if(m_tx_now &&  m_send_timer.justFinished())
   {
-    m_sw.Print_msg("TX msg: ", tx_msg, false);
+    m_sw.Print_msg("TX msg: ", tx_msg);
 
     uint8_t tx_array[sizeof(tx_msg.payload) + 20];
     bool tx_ok = m_xbee.Build_frame(tx_msg, tx_array);
@@ -182,7 +168,7 @@ void Transmit_frame(const uint8_t* frame, const uint8_t length)
 {
   // doesn't work properly, tx's huge frame
   //m_sw.Print_array("TX frame: ", frame, length);
-  m_sw.Print_array(frame, length);
+  m_sw.Print_array(frame, length, HEX);
   delay(10);
   Serial.write(frame, length);
   delay(10);
@@ -193,7 +179,7 @@ void Transmit_frame(const uint8_t* frame, const uint8_t length)
 void Message_received(const struct Msg_data rx_data)
 {
   m_sw.Println("Message_received");
-  m_sw.Print_msg(rx_data, false);
+  m_sw.Print_msg(rx_data, HEX);
 
   switch(rx_data.payload_id)
   {
@@ -216,6 +202,8 @@ void Message_received(const struct Msg_data rx_data)
   // received valid response, do stuff and then sleep
   m_sleep_now = true;
 }
+
+//////////////////////////////////////////////////////////////////////
 
 bool run_outputs(const uint8_t payload[]) // should be constantly run from main loop
 {
